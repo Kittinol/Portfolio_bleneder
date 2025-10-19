@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="utf-8" />
-  <title>GLB Model Loader (three.js r128)</title>
+  <title>GLB Model Loader with HDR (three.js r128)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     html,
@@ -50,11 +50,12 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
 </head>
 
 <body>
   <div id="info">
-    กำลังโหลดโมเดล 3D...<br>
+    กำลังโหลดโมเดล 3D และ HDR...<br>
     <small>ใช้เมาส์เพื่อหมุนและซูม</small>
   </div>
 
@@ -72,10 +73,40 @@
   renderer.setSize(innerWidth, innerHeight);
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.shadowMap.enabled = true;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
   document.body.appendChild(renderer.domElement);
 
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
+
+  // === โหลด HDR Environment ===
+  const rgbeLoader = new THREE.RGBELoader();
+  const hdrUrl = 'https://kittinol.github.io/Portfolio_bleneder/studio_small_03_1k.hdr';
+  
+  rgbeLoader.load(hdrUrl, (texture) => {
+    texture.mapping = THREE.EquirectangularReflectionMapping;
+    
+    // ตั้งค่า environment และ background
+    scene.environment = texture;
+    scene.background = texture; // เปิดให้เห็น HDR เป็น background
+    
+    console.log('HDR โหลดเสร็จแล้ว!');
+    document.getElementById('info').innerHTML = `
+      HDR โหลดเสร็จแล้ว! กำลังโหลดโมเดล 3D...<br>
+      <small>ใช้เมาส์เพื่อหมุนและซูม</small>
+    `;
+  }, 
+  (progress) => {
+    console.log('กำลังโหลด HDR:', (progress.loaded / progress.total * 100).toFixed(2) + '%');
+  },
+  (error) => {
+    console.error('โหลด HDR ไม่สำเร็จ:', error);
+    document.getElementById('info').innerHTML = `
+      โหลด HDR ไม่สำเร็จ กำลังโหลดโมเดล...<br>
+      <small>จะใช้แสงธรรมดาแทน</small>
+    `;
+  });
 
   // === แสง ===
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
@@ -90,30 +121,32 @@
   const loader = new THREE.GLTFLoader();
   const modelUrl = 'https://kittinol.github.io/Portfolio_bleneder/forest_place.glb';
   let projectTextMesh = null;
-  let redAreaPosition = new THREE.Vector3(50, 0, 0); // ตำแหน่งฉากสีแดงทางขวา
+  let redAreaPosition = new THREE.Vector3(50, 0, 0);
 
   loader.load(modelUrl, (gltf) => {
     const model = gltf.scene;
     model.scale.setScalar(5);
     scene.add(model);
 
-    // หาวัตถุที่ชื่อว่า "Project" และหาตำแหน่งฉากสีแดง
     model.traverse((child) => {
       if (child.isMesh) {
         child.castShadow = true;
         child.receiveShadow = true;
 
-        // หาข้อความ Project
+        // ให้ material รับแสงจาก environment
+        if (child.material) {
+          child.material.envMapIntensity = 1.0;
+          child.material.needsUpdate = true;
+        }
+
         if (child.name.toLowerCase().includes("project")) {
           projectTextMesh = child;
           child.userData.clickable = true;
           console.log("เจอข้อความ Project:", child.name);
         }
 
-        // หาฉากสีแดง (material สีแดง)
         if (child.material && child.material.color) {
           const c = child.material.color;
-          // ถ้าเป็นสีแดง (R > 0.5, G < 0.3, B < 0.3)
           if (c.r > 0.5 && c.g < 0.3 && c.b < 0.3) {
             const worldPos = new THREE.Vector3();
             child.getWorldPosition(worldPos);
@@ -136,30 +169,23 @@
     const startTarget = controls.target.clone();
     const startTime = performance.now();
 
-    // ปิด controls ชั่วคราวระหว่างเคลื่อน
     controls.enabled = false;
 
     function update() {
       const elapsed = performance.now() - startTime;
       const t = Math.min(elapsed / duration, 1);
       
-      // Ease in-out
       const eased = t < 0.5 
         ? 2 * t * t 
         : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
-      // เคลื่อนกล้อง
       camera.position.lerpVectors(startPos, targetPos, eased);
-      
-      // เคลื่อน target ของ controls
       controls.target.lerpVectors(startTarget, lookAtPos, eased);
-      
       camera.lookAt(controls.target);
 
       if (t < 1) {
         requestAnimationFrame(update);
       } else {
-        // เปิด controls กลับมา
         controls.enabled = true;
       }
     }
@@ -170,7 +196,6 @@
   const raycaster = new THREE.Raycaster();
   const mouse = new THREE.Vector2();
 
-  // เปลี่ยน cursor เมื่อ hover
   renderer.domElement.addEventListener('mousemove', (event) => {
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
@@ -185,7 +210,6 @@
     }
   });
 
-  // จัดการคลิก
   window.addEventListener('click', (event) => {
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
@@ -204,14 +228,7 @@
           <small>กรุณารอสักครู่</small>
         `;
 
-        // กำหนดตำแหน่งกล้องเป็นค่าคงที่ (ตำแหน่งฉากขวา)
-        const cameraRightPos = new THREE.Vector3(
-          20,   // X เท่าเดิม
-          4,    // ความสูงเท่าเดิม
-          28    // Z ไปทางขวา
-        );
-
-        // เคลื่อนกล้องไปฉากสีแดง
+        const cameraRightPos = new THREE.Vector3(20, 4, 20);
         moveCameraSmooth(cameraRightPos, redAreaPosition, 3000);
 
         setTimeout(() => {
@@ -224,7 +241,6 @@
     }
   });
 
-  // === ปุ่ม Project (ตัวเลือกเสริม) ===
   document.getElementById('projectBtn').addEventListener('click', () => {
     if (projectTextMesh) {
       document.getElementById('info').innerHTML = `
@@ -233,9 +249,9 @@
       `;
 
       const cameraRightPos = new THREE.Vector3(
-        camera.position.x,       // X เท่าเดิม
-        camera.position.y,       // ความสูงเท่าเดิม
-        camera.position.z + 50   // ขยับขวา 30 หน่วย (แกน Z)
+        camera.position.x,
+        camera.position.y,
+        camera.position.z + 50
       );
 
       moveCameraSmooth(cameraRightPos, redAreaPosition, 3000);
@@ -258,7 +274,6 @@
     requestAnimationFrame(animate);
   }
 
-  // การปรับขนาดหน้าจอ
   addEventListener('resize', () => {
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
@@ -266,7 +281,7 @@
   });
 
   animate();
-</script>
+</script> 
 
 </body>
 
