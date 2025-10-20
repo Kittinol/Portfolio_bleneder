@@ -1,13 +1,11 @@
 <!DOCTYPE html>
 <html lang="th">
-
 <head>
   <meta charset="utf-8" />
-  <title>GLB Model Loader with HDR (three.js r128)</title>
+  <title>GLB Model Loader with Animation</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    html,
-    body {
+    html, body {
       height: 100%;
       margin: 0;
       font-family: Arial, sans-serif;
@@ -62,227 +60,203 @@
   <button id="projectBtn">Project</button>
 
   <script>
-  // === Scene / Camera / Renderer ===
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x222222);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x222222);
 
-  const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 500);
-  camera.position.set(20, 4, -2);
+    const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 500);
+    camera.position.set(20, 4, -2);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(innerWidth, innerHeight);
-  renderer.outputEncoding = THREE.sRGBEncoding;
-  renderer.shadowMap.enabled = true;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
-  document.body.appendChild(renderer.domElement);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.shadowMap.enabled = true;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    document.body.appendChild(renderer.domElement);
 
-  const controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
 
-  // === โหลด HDR Environment ===
-  const rgbeLoader = new THREE.RGBELoader();
-  const hdrUrl = 'https://kittinol.github.io/Portfolio_bleneder/studio_small_03_1k.hdr';
-  
-  rgbeLoader.load(hdrUrl, (texture) => {
-    texture.mapping = THREE.EquirectangularReflectionMapping;
-    
-    // ตั้งค่า environment และ background
-    scene.environment = texture;
-    scene.background = texture; // เปิดให้เห็น HDR เป็น background
-    
-    console.log('HDR โหลดเสร็จแล้ว!');
-    document.getElementById('info').innerHTML = `
-      HDR โหลดเสร็จแล้ว! กำลังโหลดโมเดล 3D...<br>
-      <small>ใช้เมาส์เพื่อหมุนและซูม</small>
-    `;
-  }, 
-  (progress) => {
-    console.log('กำลังโหลด HDR:', (progress.loaded / progress.total * 100).toFixed(2) + '%');
-  },
-  (error) => {
-    console.error('โหลด HDR ไม่สำเร็จ:', error);
-    document.getElementById('info').innerHTML = `
-      โหลด HDR ไม่สำเร็จ กำลังโหลดโมเดล...<br>
-      <small>จะใช้แสงธรรมดาแทน</small>
-    `;
-  });
+    const rgbeLoader = new THREE.RGBELoader();
+    const hdrUrl = 'https://kittinol.github.io/Portfolio_bleneder/studio_small_03_1k.hdr';
 
-  // === แสง ===
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-  scene.add(ambientLight);
+    rgbeLoader.load(hdrUrl, (texture) => {
+      texture.mapping = THREE.EquirectangularReflectionMapping;
+      scene.environment = texture;
+      scene.background = texture;
 
-  const sun = new THREE.DirectionalLight(0xffffff, 1);
-  sun.position.set(5, 10, 5);
-  sun.castShadow = true;
-  scene.add(sun);
+      console.log('HDR โหลดเสร็จแล้ว!');
+      document.getElementById('info').innerHTML = `
+        HDR โหลดเสร็จแล้ว! กำลังโหลดโมเดล 3D...<br>
+        <small>ใช้เมาส์เพื่อหมุนและซูม</small>
+      `;
+    });
 
-  // === โหลดโมเดล GLB ===
-  const loader = new THREE.GLTFLoader();
-  const modelUrl = 'https://kittinol.github.io/Portfolio_bleneder/forest_place.glb';
-  let projectTextMesh = null;
-  let redAreaPosition = new THREE.Vector3(50, 0, 0);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    scene.add(ambientLight);
 
-  loader.load(modelUrl, (gltf) => {
-    const model = gltf.scene;
-    model.scale.setScalar(5);
-    scene.add(model);
+    const sun = new THREE.DirectionalLight(0xffffff, 1);
+    sun.position.set(5, 10, 5);
+    sun.castShadow = true;
+    scene.add(sun);
 
-    model.traverse((child) => {
-      if (child.isMesh) {
-        child.castShadow = true;
-        child.receiveShadow = true;
+    const loader = new THREE.GLTFLoader();
+    const modelUrl = 'https://kittinol.github.io/Portfolio_bleneder/forest_place.glb'; // <-- เปลี่ยน URL เป็น cat_walk.glb ถ้ามี
 
-        // ให้ material รับแสงจาก environment
-        if (child.material) {
-          child.material.envMapIntensity = 1.0;
-          child.material.needsUpdate = true;
-        }
+    let projectTextMesh = null;
+    let mixer = null;
+    const clock = new THREE.Clock();
 
-        if (child.name.toLowerCase().includes("project")) {
-          projectTextMesh = child;
-          child.userData.clickable = true;
-          console.log("เจอข้อความ Project:", child.name);
-        }
+    loader.load(modelUrl, (gltf) => {
+      const model = gltf.scene;
+      model.scale.setScalar(5);
+      scene.add(model);
 
-        if (child.material && child.material.color) {
-          const c = child.material.color;
-          if (c.r > 0.5 && c.g < 0.3 && c.b < 0.3) {
-            const worldPos = new THREE.Vector3();
-            child.getWorldPosition(worldPos);
-            redAreaPosition = worldPos;
-            console.log("เจอฉากสีแดงที่:", worldPos);
+      // === Animation Mixer ===
+      if (gltf.animations && gltf.animations.length > 0) {
+        mixer = new THREE.AnimationMixer(model);
+        gltf.animations.forEach((clip) => {
+          mixer.clipAction(clip).play();
+        });
+        console.log("พบ Animation:", gltf.animations.map(a => a.name));
+      }
+
+      model.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+
+          if (child.material) {
+            child.material.envMapIntensity = 1.0;
+            child.material.needsUpdate = true;
           }
+
+          if (child.name.toLowerCase().includes("project")) {
+            projectTextMesh = child;
+            child.userData.clickable = true;
+            console.log("เจอข้อความ Project:", child.name);
+          }
+        }
+      });
+
+      document.getElementById('info').innerHTML = `
+        โมเดล 3D โหลดเสร็จแล้ว!<br>
+        <small>คลิกที่ "Project" เพื่อเลื่อนกล้อง หรือดู animation</small>
+      `;
+    });
+
+    function moveCameraSmooth(targetPos, lookAtPos, duration = 3000) {
+      const startPos = camera.position.clone();
+      const startTarget = controls.target.clone();
+      const startTime = performance.now();
+
+      controls.enabled = false;
+
+      function update() {
+        const elapsed = performance.now() - startTime;
+        const t = Math.min(elapsed / duration, 1);
+        const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+        camera.position.lerpVectors(startPos, targetPos, eased);
+        controls.target.lerpVectors(startTarget, lookAtPos, eased);
+        camera.lookAt(controls.target);
+
+        if (t < 1) {
+          requestAnimationFrame(update);
+        } else {
+          controls.enabled = true;
+        }
+      }
+      requestAnimationFrame(update);
+    }
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    renderer.domElement.addEventListener('mousemove', (event) => {
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(scene.children, true);
+
+      if (intersects.length > 0 && intersects[0].object.userData.clickable) {
+        renderer.domElement.style.cursor = 'pointer';
+      } else {
+        renderer.domElement.style.cursor = 'default';
+      }
+    });
+
+    window.addEventListener('click', (event) => {
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(scene.children, true);
+
+      if (intersects.length > 0) {
+        const obj = intersects[0].object;
+
+        if (projectTextMesh && obj === projectTextMesh) {
+          console.log("คลิกที่คำว่า Project แล้ว!");
+
+          document.getElementById('info').innerHTML = `
+            กำลังเคลื่อนกล้อง...<br>
+            <small>กรุณารอสักครู่</small>
+          `;
+
+          const cameraPos = new THREE.Vector3(70, 10, 35);
+          const lookAtPos = new THREE.Vector3(50, 0, 0);
+
+          moveCameraSmooth(cameraPos, lookAtPos, 3000);
+
+          setTimeout(() => {
+            document.getElementById('info').innerHTML = `
+              มาถึงจุดหมายแล้ว!<br>
+              <small>ใช้เมาส์เพื่อหมุนและซูม</small>
+            `;
+          }, 3000);
         }
       }
     });
 
-    document.getElementById('info').innerHTML = `
-      โมเดล 3D โหลดเสร็จแล้ว!<br>
-      <small>คลิกที่ "Project" เพื่อไปฉากสีแดง</small>
-    `;
-  });
-
-  // === ฟังก์ชันเลื่อนกล้องนุ่มนวล ===
-  function moveCameraSmooth(targetPos, lookAtPos, duration = 3000) {
-    const startPos = camera.position.clone();
-    const startTarget = controls.target.clone();
-    const startTime = performance.now();
-
-    controls.enabled = false;
-
-    function update() {
-      const elapsed = performance.now() - startTime;
-      const t = Math.min(elapsed / duration, 1);
-      
-      const eased = t < 0.5 
-        ? 2 * t * t 
-        : 1 - Math.pow(-2 * t + 2, 2) / 2;
-
-      camera.position.lerpVectors(startPos, targetPos, eased);
-      controls.target.lerpVectors(startTarget, lookAtPos, eased);
-      camera.lookAt(controls.target);
-
-      if (t < 1) {
-        requestAnimationFrame(update);
-      } else {
-        controls.enabled = true;
-      }
-    }
-    requestAnimationFrame(update);
-  }
-
-  // === Raycaster ตรวจการคลิก ===
-  const raycaster = new THREE.Raycaster();
-  const mouse = new THREE.Vector2();
-
-  renderer.domElement.addEventListener('mousemove', (event) => {
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-    raycaster.setFromCamera(mouse, camera);
-    const intersects = raycaster.intersectObjects(scene.children, true);
-
-    if (intersects.length > 0 && intersects[0].object.userData.clickable) {
-      renderer.domElement.style.cursor = 'pointer';
-    } else {
-      renderer.domElement.style.cursor = 'default';
-    }
-  });
-
-  window.addEventListener('click', (event) => {
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-    raycaster.setFromCamera(mouse, camera);
-    const intersects = raycaster.intersectObjects(scene.children, true);
-
-    if (intersects.length > 0) {
-      const obj = intersects[0].object;
-      
-      if (projectTextMesh && obj === projectTextMesh) {
-        console.log("คลิกที่คำว่า Project แล้ว!");
-        
-        document.getElementById('info').innerHTML = `
-          กำลังเคลื่อนไปฉากสีแดง...<br>
-          <small>กรุณารอสักครู่</small>
-        `;
-
-        const cameraRightPos = new THREE.Vector3(20, 4, 20);
-        moveCameraSmooth(cameraRightPos, redAreaPosition, 3000);
-
-        setTimeout(() => {
-          document.getElementById('info').innerHTML = `
-            มาถึงฉากสีแดงแล้ว!<br>
-            <small>ใช้เมาส์เพื่อหมุนและซูม</small>
-          `;
-        }, 3000);
-      }
-    }
-  });
-
-  document.getElementById('projectBtn').addEventListener('click', () => {
-    if (projectTextMesh) {
+    document.getElementById('projectBtn').addEventListener('click', () => {
       document.getElementById('info').innerHTML = `
-        กำลังเคลื่อนไปฉากสีแดง...<br>
+        กำลังเคลื่อนกล้อง...<br>
         <small>กรุณารอสักครู่</small>
       `;
 
-      const cameraRightPos = new THREE.Vector3(
-        camera.position.x,
-        camera.position.y,
-        camera.position.z + 50
-      );
+      const cameraPos = new THREE.Vector3(75, 10, 35);
+      const lookAtPos = new THREE.Vector3(50, 0, 0);
 
-      moveCameraSmooth(cameraRightPos, redAreaPosition, 3000);
+      moveCameraSmooth(cameraPos, lookAtPos, 3000);
 
       setTimeout(() => {
         document.getElementById('info').innerHTML = `
-          มาถึงฉากสีแดงแล้ว!<br>
+          มาถึงจุดหมายแล้ว!<br>
           <small>ใช้เมาส์เพื่อหมุนและซูม</small>
         `;
       }, 3000);
+    });
+
+    function animate(time) {
+      const delta = clock.getDelta();
+      if (mixer) mixer.update(delta);
+
+      controls.update();
+      sun.position.x = 30 * Math.sin(time / 3000);
+      sun.position.z = 30 * Math.cos(time / 3000);
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
     }
-  });
 
-  // === Render Loop ===
-  function animate(time) {
-    controls.update();
-    sun.position.x = 30 * Math.sin(time / 3000);
-    sun.position.z = 30 * Math.cos(time / 3000);
-    renderer.render(scene, camera);
-    requestAnimationFrame(animate);
-  }
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
 
-  addEventListener('resize', () => {
-    camera.aspect = innerWidth / innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
-  });
-
-  animate();
-</script> 
-
+    animate();
+  </script>
 </body>
-
 </html>
